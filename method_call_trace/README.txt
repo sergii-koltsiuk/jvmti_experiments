@@ -3,7 +3,7 @@ Method Call Trace
 
 Build
 -----
--> mingw32-make JDK=%JDK_PATH% OSNAME=win32 run
+-> mingw32-make test
 
 Run
 ---

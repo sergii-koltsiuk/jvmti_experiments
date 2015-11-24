@@ -25,21 +25,27 @@ typedef struct
 static GlobalAgentData *gdata;
 
 
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
 
- // JVMTI_EVENT_VM_INIT 
-void JNICALL callbackVMInit(jvmtiEnv *jvmti_env, JNIEnv* jni_env, jthread thread)
+// JVMTI_EVENT_VM_INIT 
+void JNICALL cbVMInit(jvmtiEnv *jvmti_env, JNIEnv* jni_env, jthread thread)
 {
-    printf("callbackVMInit\n");
+    printf("VMInit\n");
 }
 
- // JVMTI_EVENT_VM_DEATH 
-void JNICALL callbackVMDeath(jvmtiEnv *jvmti_env, JNIEnv* jni_env)
+// JVMTI_EVENT_VM_DEATH 
+void JNICALL cbVMDeath(jvmtiEnv *jvmti_env, JNIEnv* jni_env)
 {
-    printf("callbackVMDeath\n");
+    printf("VMDeath\n");
 }
 
 
- // Parse the options for this mtrace agent 
+/////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////
+
 static void parse_agent_options(char *options)
 {
     printf("agent options: ");
@@ -124,10 +130,9 @@ static void init_global_data()
     gdata = &data;
 }
 
-static void init_jvmti()
+static void init_jvmti(JavaVM *jvm)
 {
-    static jvmtiEnv *jvmti = NULL;    
-    jvmtiError error;
+    static jvmtiEnv *jvmti = NULL;
     jint res;
 
     res = (*jvm)->GetEnv(jvm, (void **)&jvmti, JVMTI_VERSION_1);
@@ -146,8 +151,11 @@ static void init_jvmti()
 
 static void init_capabilities()
 {
+    jvmtiEnv *jvmti = gdata->jvmti;
+    jvmtiError error;
+
     static jvmtiCapabilities capabilities;
-    (void)memset(&capabilitiescapabilities, 0, sizeof(jvmtiCapabilities));
+    (void)memset(&capabilities, 0, sizeof(jvmtiCapabilities));
     capabilities.can_signal_thread = 1;
     capabilities.can_get_owned_monitor_info = 1;
     capabilities.can_generate_method_entry_events = 1;
@@ -160,19 +168,26 @@ static void init_capabilities()
 
 static void set_event_notifications()
 {
+    jvmtiEnv *jvmti = gdata->jvmti;
+    jvmtiError error;
+
     error = (*jvmti)->SetEventNotificationMode
         (jvmti, JVMTI_ENABLE, JVMTI_EVENT_VM_INIT, (jthread)NULL);
+
+    check_jvmti_error(jvmti, error, "Cannot set event notification");
                   
 
     error = (*jvmti)->SetEventNotificationMode
         (jvmti, JVMTI_ENABLE, JVMTI_EVENT_VM_DEATH, (jthread)NULL);
-                  
-                  
+
     check_jvmti_error(jvmti, error, "Cannot set event notification");
 }
 
 static void set_event_callbacks()
 {
+    jvmtiEnv *jvmti = gdata->jvmti;
+    jvmtiError error;
+
     jvmtiEventCallbacks callbacks;               
     (void)memset(&callbacks, 0, sizeof(callbacks));
     callbacks.VMInit = &cbVMInit;  // JVMTI_EVENT_VM_INIT 
@@ -183,26 +198,28 @@ static void set_event_callbacks()
 
 static void init_lock()
 {
+    jvmtiEnv *jvmti = gdata->jvmti;
+    jvmtiError error;
+
     error = (*jvmti)->CreateRawMonitor(jvmti, "agent data", &(gdata->lock));
     check_jvmti_error(jvmti, error, "Cannot create raw monitor");
 }
 
 static void enter_critical_section(jvmtiEnv *jvmti)
 {
-    jvmtiError error;
-    error = (*jvmti)->RawMonitorEnter(jvmti, gdata->lock);
+    jvmtiError error = (*jvmti)->RawMonitorEnter(jvmti, gdata->lock);
     check_jvmti_error(jvmti, error, "Cannot enter with raw monitor");
 }
 
 static void exit_critical_section(jvmtiEnv *jvmti)
 {
-    jvmtiError error;
-    error = (*jvmti)->RawMonitorExit(jvmti, gdata->lock);
+    jvmtiError error = (*jvmti)->RawMonitorExit(jvmti, gdata->lock);
     check_jvmti_error(jvmti, error, "Cannot exit with raw monitor");
 }
 
+
 /////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////
+//
 /////////////////////////////////////////////////////////////////////////////
 
 
@@ -210,7 +227,7 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *jvm, char *options, void *reserved)
 {
     parse_agent_options(options);
     init_global_data();
-    init_jvmti();
+    init_jvmti(jvm);
     set_event_notifications();
     set_event_callbacks();
     init_lock();
