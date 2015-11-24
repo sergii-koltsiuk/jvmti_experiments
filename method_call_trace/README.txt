@@ -1,10 +1,19 @@
 Method Call Trace
 =================
 
+Sources
+-------
+agent_util - standard helper
+java_crw_demo - standard helper
+main.c - main implementation
+bridge.java - class with injections
+main.jar - test class
+
 Build
 -----
--> mingw32-make test
+-> make
 
-Run
+
+Test
 ---
--> java -agentlib:method_call_trace -jar main.jar
+-> make test
