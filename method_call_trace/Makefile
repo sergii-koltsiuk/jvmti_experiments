@@ -10,12 +10,12 @@
 # Source lists
 LIBNAME=method_call_trace
 SOURCES=main.c java_crw_demo.c agent_util.c
-JAVA_SOURCES=main.java
+JAVA_SOURCES=Test.java TestThread.java
 JAVA_TOOL_SOURCES=bridge.java
 JAVA_MANIFEST=manifest.mf
 
 # Name of jar file that needs to be created
-SOURCES_JARFILE=main.jar
+SOURCES_JARFILE=test.jar
 TOOL_JARFILE=bridge.jar
 JDK=$(JDK_PATH)
 
@@ -58,7 +58,7 @@ $(LIBRARY): $(OBJECTS)
 # Build jar file
 jarfiles: $(SOURCES_JARFILE) $(TOOL_JARFILE)
 
-$(SOURCES_JARFILE): $(JAVA_SOURCES)
+$(SOURCES_JARFILE): $(JAVA_SOURCES) $(JAVA_MANIFEST)
 	"$(JDK)/bin/javac" $(JAVA_SOURCES)
 	"$(JDK)/bin/jar" cfmv $(SOURCES_JARFILE) $(JAVA_MANIFEST) *.class
 
@@ -68,11 +68,12 @@ $(TOOL_JARFILE): $(JAVA_TOOL_SOURCES)
 
 # Cleanup the built bits
 clean:
-	del $(LIBRARY) $(SOURCES_JARFILE) $(TOOL_JARFILE) $(OBJECTS) *.class *.lib *.exp *pdb
+	del $(LIBRARY) $(SOURCES_JARFILE) $(TOOL_JARFILE) $(OBJECTS) 
+	del *.class *.lib *.exp *pdb
 
 # Simple tester
 test: all
-	"$(JDK)/bin/java" -Xbootclasspath/a:bridge.jar  -agentlib:method_call_trace=include=main -jar main.jar
+	"$(JDK)/bin/java" -Xbootclasspath/a:bridge.jar  -agentlib:method_call_trace=include=Test -jar test.jar
 
 %.obj: %.c
 	$(COMPILE.c) $<

@@ -1,8 +1,11 @@
-#include <jvmti.h>
-#include <jni.h>
-#include <stdlib.h>
 #include <java_crw_demo.h>
 #include <agent_util.h>
+
+#include <jvmti.h>
+#include <jni.h>
+
+#include <stdlib.h>
+#include <assert.h>
 
 
 #define MTRACE_class        bridge          /* Name of class we are using */
@@ -74,7 +77,7 @@ static void get_thread_name(jvmtiEnv *jvmti, jthread thread, char *tname, int ma
 //
 /////////////////////////////////////////////////////////////////////////////
 
-
+static int call_stack_deep = 0;
 static void MTRACE_native_entry(JNIEnv *env, jclass klass, jobject thread, jint cnum, jint mnum)
 {
 	enter_critical_section(gdata->jvmti); 
@@ -101,9 +104,11 @@ static void MTRACE_native_entry(JNIEnv *env, jclass klass, jobject thread, jint 
 			if (interested((char*)cp->name, (char*)mp->name,
 				gdata->include, NULL))
 			{
-				mp->calls++;
-				cp->calls++;
+				//mp->calls++;
+				//cp->calls++;
+                for (int i = 0; i < call_stack_deep; ++i) stdout_message(" ");
 				stdout_message("enter: %s:%s\r\n", cp->name, mp->name);
+                ++call_stack_deep;
 			}
 		}
 	} 
@@ -134,8 +139,11 @@ static void MTRACE_native_exit(JNIEnv *env, jclass klass, jobject thread, jint c
 			mp = cp->methods + mnum;
 			if (interested((char*)cp->name, (char*)mp->name, gdata->include, NULL))
 			{
-				mp->returns++;
-				stdout_message("exit: %s:%s\r\n", cp->name, mp->name);
+				//mp->returns++;
+                assert(call_stack_deep != 0);
+                --call_stack_deep;
+                for (int i = 0; i < call_stack_deep; ++i) stdout_message(" ");
+				stdout_message("exit: %s:%s\r\n", cp->name, mp->name);                
 			}
 		}
 	} 
