@@ -1,11 +1,21 @@
-#include <java_crw_demo.h>
-#include <agent_util.h>
+#include "java_crw_demo.h"
+#include "agent_util.h"
 
 #include <jvmti.h>
 #include <jni.h>
 
 #include <stdlib.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+
+#include <queue>
+
+
+#include <winsock2.h>
+#include <windows.h>
+  
+#pragma comment(lib,"ws2_32.lib") //Winsock Library
 
 
 #define MTRACE_class        bridge          /* Name of class we are using */
@@ -27,19 +37,30 @@
 
  // Data structure to hold method and class information in agent 
 
-typedef struct MethodInfo {
+typedef struct MethodInfo
+{
     const char *name;          /* Method name */
     const char *signature;     /* Method signature */
     int         calls;         /* Method call count */
     int         returns;       /* Method return count */
 } MethodInfo;
 
-typedef struct ClassInfo {
+typedef struct ClassInfo
+{
     const char *name;          /* Class name */
     int         mcount;        /* Method count */
     MethodInfo *methods;       /* Method information */
     int         calls;         /* Method call count for this class */
 } ClassInfo;
+
+typedef struct NetworkServerInfo
+{
+    HANDLE thread;
+    bool working;
+    SOCKET listen_socket; 
+    SOCKET client_sock;
+	std::queue<std::string> queue;
+} NetworkServerInfo;
 
  // Global agent data structure                  
 typedef struct 
@@ -55,9 +76,12 @@ typedef struct
     // Options 
     char *include;
 
-    /* ClassInfo Table */
+     // ClassInfo Table 
     ClassInfo      *classes;
     jint            ccount;
+
+    // Network Server Data
+    NetworkServerInfo *server;
 } GlobalAgentData;
                   
 static GlobalAgentData *gdata;
@@ -107,7 +131,7 @@ static void MTRACE_native_entry(JNIEnv *env, jclass klass, jobject thread, jint 
 				//mp->calls++;
 				//cp->calls++;
                 for (int i = 0; i < call_stack_deep; ++i) stdout_message(" ");
-				stdout_message("enter: %s:%s\r\n", cp->name, mp->name);
+				stdout_message("enter: %s:%s\n", cp->name, mp->name);
                 ++call_stack_deep;
 			}
 		}
@@ -143,11 +167,11 @@ static void MTRACE_native_exit(JNIEnv *env, jclass klass, jobject thread, jint c
                 assert(call_stack_deep != 0);
                 --call_stack_deep;
                 for (int i = 0; i < call_stack_deep; ++i) stdout_message(" ");
-				stdout_message("exit: %s:%s\r\n", cp->name, mp->name);                
+				stdout_message("exit: %s:%s\n", cp->name, mp->name);
 			}
 		}
 	} 
-	exit_critical_section(gdata->jvmti);
+    exit_critical_section(gdata->jvmti);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -182,27 +206,27 @@ static void JNICALL cbVMInit(jvmtiEnv *jvmti, JNIEnv* env, jthread thread)
 		
 
 		// Register Natives for class whose methods we use 
-		klass = (*env)->FindClass(env, STRING(MTRACE_class));
+		klass = (*env).FindClass(STRING(MTRACE_class));
 		if (klass == NULL)
 		{
 			fatal_error("ERROR: JNI: Cannot find %s with FindClass\n",
 				STRING(MTRACE_class));
 		}
 
-		rc = (*env)->RegisterNatives(env, klass, registry, 2);
+		rc = (*env).RegisterNatives(klass, registry, 2);
 		if (rc != 0)
 		{
 			fatal_error("ERROR: JNI: Cannot register native methods for %s\n", STRING(MTRACE_class));
 		}
 
 		// Engage calls. 
-		field = (*env)->GetStaticFieldID(env, klass, STRING(MTRACE_engaged), "I");
+		field = (*env).GetStaticFieldID(klass, STRING(MTRACE_engaged), "I");
 		if (field == NULL)
 		{
 			fatal_error("ERROR: JNI: Cannot get field from %s\n", STRING(MTRACE_class));
 		}
 
-		(*env)->SetStaticIntField(env, klass, field, 1);
+		(*env).SetStaticIntField(klass, field, 1);
 
 		/////////////////////////////////////////////
 		/////////////////////////////////////////////
@@ -226,7 +250,7 @@ static void JNICALL cbVMInit(jvmtiEnv *jvmti, JNIEnv* env, jthread thread)
             jvmtiError error;
 
              // Setup event  notification modes 
-            error = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE,
+            error = (*jvmti).SetEventNotificationMode(JVMTI_ENABLE,
                                   events[i], (jthread)NULL);
             check_jvmti_error(jvmti, error, "Cannot set event notification");
         }
@@ -246,19 +270,19 @@ static void JNICALL cbVMDeath(jvmtiEnv *jvmti, JNIEnv* env)
         stdout_message("VMDeath\n");
 
         // Disengage calls in MTRACE_class. 
-        klass = (*env)->FindClass(env, STRING(MTRACE_class));
+        klass = (*env).FindClass(STRING(MTRACE_class));
         if ( klass == NULL ) 
         {
             fatal_error("ERROR: JNI: Cannot find %s with FindClass\n", STRING(MTRACE_class));
         }
 
-        field = (*env)->GetStaticFieldID(env, klass, STRING(MTRACE_engaged), "I");
+        field = (*env).GetStaticFieldID(klass, STRING(MTRACE_engaged), "I");
         if ( field == NULL ) 
         {
             fatal_error("ERROR: JNI: Cannot get field from %s\n", STRING(MTRACE_class));
         }
 
-        (*env)->SetStaticIntField(env, klass, field, 0);
+        (*env).SetStaticIntField(klass, field, 0);
 
         gdata->vm_is_dead = JNI_TRUE;
 
@@ -300,7 +324,7 @@ static void JNICALL cbThreadEnd(jvmtiEnv *jvmti, JNIEnv *env, jthread thread)
     exit_critical_section(jvmti);
 }
 
- // JVMTI_EVENT_CLASS_FILE_LOAD_HOOK 
+// JVMTI_EVENT_CLASS_FILE_LOAD_HOOK 
 static void JNICALL cbClassFileLoadHook(jvmtiEnv *jvmti, JNIEnv* env,
     jclass class_being_redefined, jobject loader,
     const char* name, jobject protection_domain,
@@ -312,7 +336,7 @@ static void JNICALL cbClassFileLoadHook(jvmtiEnv *jvmti, JNIEnv* env,
         // It's possible we get here right after VmDeath event, be careful 
         if ( !gdata->vm_is_dead ) 
         {
-            const char *classname;
+                const char *classname;
 
             /* Name could be NULL */
             if ( name == NULL ) 
@@ -484,7 +508,7 @@ static void get_thread_name(jvmtiEnv *jvmti, jthread thread, char *tname, int ma
     (void)strcpy(tname, "Unknown");
 
     /* Get the thread information, which includes the name */
-    error = (*jvmti)->GetThreadInfo(jvmti, thread, &info);
+    error = (*jvmti).GetThreadInfo(thread, &info);
     check_jvmti_error(jvmti, error, "Cannot get thread info");
 
     /* The thread might not have a name, be careful here. */
@@ -510,7 +534,7 @@ static void parse_agent_options(char *options)
 {
     stdout_message("agent options: ");
     stdout_message(options==NULL? "NULL":options);
-    stdout_message("\r\n");
+    stdout_message("\n");
 
     char token[MAX_TOKEN_LENGTH];
     char *next;
@@ -595,7 +619,7 @@ static void init_jvmti(JavaVM *jvm)
     static jvmtiEnv *jvmti = NULL;
     jint res;
 
-    res = (*jvm)->GetEnv(jvm, (void **)&jvmti, JVMTI_VERSION_1);
+    res = (*jvm).GetEnv((void **)&jvmti, JVMTI_VERSION_1);
     if (res != JNI_OK) 
     {
         // This means that the VM was unable to obtain this version of the
@@ -617,7 +641,7 @@ static void init_capabilities()
     static jvmtiCapabilities capabilities;
     (void)memset(&capabilities, 0, sizeof(jvmtiCapabilities));
     capabilities.can_generate_all_class_hook_events  = 1;
-    error = (*jvmti)->AddCapabilities(jvmti, &capabilities);             
+    error = (*jvmti).AddCapabilities(&capabilities);             
     check_jvmti_error(jvmti, error, "Unable to get necessary JVMTI capabilities.");
 }
 
@@ -630,17 +654,16 @@ static void set_event_notifications()
      *   initialization, VM death, and Class File Loads.
      *   Once the VM is initialized we will request more events.
      */
-    error = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE,
-                          JVMTI_EVENT_VM_START, (jthread)NULL);
+    error = (*jvmti).SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_VM_START, (jthread)NULL);
     check_jvmti_error(jvmti, error, "Cannot set event notification");
-    error = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE,
-                          JVMTI_EVENT_VM_INIT, (jthread)NULL);
+
+    error = (*jvmti).SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_VM_INIT, (jthread)NULL);
     check_jvmti_error(jvmti, error, "Cannot set event notification");
-    error = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE,
-                          JVMTI_EVENT_VM_DEATH, (jthread)NULL);
+
+    error = (*jvmti).SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_VM_DEATH, (jthread)NULL);
     check_jvmti_error(jvmti, error, "Cannot set event notification");
-    error = (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE,
-                          JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, (jthread)NULL);
+
+    error = (*jvmti).SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, (jthread)NULL);
     check_jvmti_error(jvmti, error, "Cannot set event notification");
 }
 
@@ -657,7 +680,7 @@ static void set_event_callbacks()
     callbacks.ClassFileLoadHook = &cbClassFileLoadHook; // JVMTI_EVENT_CLASS_FILE_LOAD_HOOK     
     callbacks.ThreadStart = &cbThreadStart; // JVMTI_EVENT_THREAD_START 
     callbacks.ThreadEnd = &cbThreadEnd; // JVMTI_EVENT_THREAD_END 
-    error = (*jvmti)->SetEventCallbacks(jvmti, &callbacks,(jint)sizeof(callbacks));
+    error = (*jvmti).SetEventCallbacks(&callbacks,(jint)sizeof(callbacks));
     check_jvmti_error(jvmti, error, "Cannot set jvmti callbacks");
 }
 
@@ -666,20 +689,168 @@ static void init_lock()
     jvmtiEnv *jvmti = gdata->jvmti;
     jvmtiError error;
 
-    error = (*jvmti)->CreateRawMonitor(jvmti, "agent data", &(gdata->lock));
-    check_jvmti_error(jvmti, error, "Cannot create raw monitor");
+    error = (*jvmti).CreateRawMonitor("agent data", &(gdata->lock));
+        check_jvmti_error(jvmti, error, "Cannot create raw monitor");
 }
 
 static void enter_critical_section(jvmtiEnv *jvmti)
 {
-    jvmtiError error = (*jvmti)->RawMonitorEnter(jvmti, gdata->lock);
+    jvmtiError error = (*jvmti).RawMonitorEnter(gdata->lock);
     check_jvmti_error(jvmti, error, "Cannot enter with raw monitor");
 }
 
 static void exit_critical_section(jvmtiEnv *jvmti)
 {
-    jvmtiError error = (*jvmti)->RawMonitorExit(jvmti, gdata->lock);
+    jvmtiError error = (*jvmti).RawMonitorExit(gdata->lock);
     check_jvmti_error(jvmti, error, "Cannot exit with raw monitor");
+}
+
+static void init_socket()
+{
+    WSADATA wsa;
+    NetworkServerInfo *server = gdata->server;
+    assert(server != NULL);
+
+    struct sockaddr_in server_addr;
+  
+    stdout_message("\nInitialising Winsock...\n");
+    if (WSAStartup(MAKEWORD(2,2),&wsa) != 0)
+    {
+        fatal_error("Failed. Error Code : %d\n",WSAGetLastError());
+    }
+      
+    stdout_message("Initialised.\n");
+      
+    //Create a socket
+	if ((server->listen_socket = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
+    {
+        fatal_error("Could not create socket : %d\n" , WSAGetLastError());
+    }
+  
+    stdout_message("Socket created.\n");
+      
+    //Prepare the sockaddr_in structure
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_addr.s_addr = INADDR_ANY;
+	server_addr.sin_port = htons(8888);
+      
+    //Bind
+	if (bind(server->listen_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == SOCKET_ERROR)
+    {
+        fatal_error("Bind failed with error code : %d\n" , WSAGetLastError());
+    }
+      
+    stdout_message("Bind done\n");    
+}
+
+static void finit_socket()
+{
+    NetworkServerInfo *server = gdata->server;
+
+    if (server != NULL)
+    {
+        if (server->listen_socket != INVALID_SOCKET)
+        {
+			shutdown(server->listen_socket, SD_BOTH);
+            closesocket(server->listen_socket);
+			server->listen_socket = INVALID_SOCKET;
+        }
+
+		if (server->client_sock != INVALID_SOCKET)
+        {
+			shutdown(server->client_sock, SD_BOTH);
+            closesocket(server->client_sock);
+			server->client_sock = INVALID_SOCKET;
+        }
+
+        WSACleanup();
+    }
+}
+
+static void network_server_worker()
+{
+	NetworkServerInfo *server = gdata->server;
+	assert(server != NULL);
+
+    init_socket();
+
+    while(server->working)
+    {
+        listen(server->listen_socket , 1);
+          
+        stdout_message("Waiting for incoming connections...\n");
+          
+        struct sockaddr_in client;
+        int sockaddr_size = sizeof(struct sockaddr_in);
+        server->client_sock = accept(server->listen_socket , (struct sockaddr *)&client, &sockaddr_size);
+        if (server->client_sock == INVALID_SOCKET)
+        {
+            stdout_message("accept failed with error code : %d\n" , WSAGetLastError());
+            continue;
+        }
+          
+        stdout_message("Connection accepted\n");
+      
+        //Hello to client
+        const char *message = "Hello Client , I am JVM TI\n";
+        send(server->client_sock , message , strlen(message) , 0);
+
+		while (server->working)
+		{
+			while (!server->queue.empty())
+			{
+				
+			}
+		}
+    }
+    finit_socket();
+}
+
+static DWORD WINAPI ServerThreadProc(void *context)
+{
+    network_server_worker();
+	return 1;
+}
+
+static void start_network_server()
+{
+    if (gdata->server == NULL)
+    {
+        gdata->server = (NetworkServerInfo *)malloc(sizeof(NetworkServerInfo));
+        if (gdata->server == NULL)
+        {
+            fatal_error("ERROR: Out of malloc memory\n");
+        }
+    }
+
+    NetworkServerInfo *server = gdata->server;
+
+    server->working = true;
+	HANDLE server_thread = CreateThread(NULL, 0, &ServerThreadProc, NULL, 0, NULL);
+    if (server_thread == NULL)
+    {
+        fatal_error("ERROR: Can't create thread\n");
+    }
+
+    server->thread = server_thread;
+}
+
+static void stop_network_server()
+{
+    if (gdata->server != NULL && gdata->server->working)
+    {
+        NetworkServerInfo *server = gdata->server;
+        assert(server->thread != NULL);
+
+		server->working = false;
+        finit_socket();
+        WaitForSingleObject(server->thread, INFINITE);
+        CloseHandle(server->thread);
+        server->thread = NULL;
+
+		free(server);
+		gdata->server = NULL;
+    }
 }
 
 
@@ -697,11 +868,12 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *jvm, char *options, void *reserved)
     set_event_notifications();
     set_event_callbacks();
     init_lock();
+    start_network_server();
 
     return JNI_OK;
 }
 
 JNIEXPORT void JNICALL Agent_OnUnload(JavaVM *vm)
 {
-
+    stop_network_server();
 }

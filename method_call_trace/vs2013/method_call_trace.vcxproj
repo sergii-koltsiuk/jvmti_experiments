@@ -89,7 +89,10 @@
   <ItemGroup>
     <ClCompile Include="..\agent_util.c" />
     <ClCompile Include="..\java_crw_demo.c" />
-    <ClCompile Include="..\main.c" />
+    <ClCompile Include="..\main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\Makefile" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
