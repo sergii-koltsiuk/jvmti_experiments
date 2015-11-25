@@ -83,13 +83,18 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\JVMAgent.h" />
     <ClInclude Include="..\agent_util.h" />
     <ClInclude Include="..\java_crw_demo.h" />
+    <ClInclude Include="..\JVMAgentConstants.h" />
+    <ClInclude Include="..\NetworkServer.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\JVMAgent.cpp" />
     <ClCompile Include="..\agent_util.c" />
     <ClCompile Include="..\java_crw_demo.c" />
     <ClCompile Include="..\main.cpp" />
+    <ClCompile Include="..\NetworkServer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Makefile" />

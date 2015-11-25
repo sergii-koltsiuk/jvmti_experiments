@@ -10,7 +10,7 @@
 # Source lists
 LIBNAME=method_call_trace
 CSOURCES=java_crw_demo.c agent_util.c
-CXXSOURCES = main.cpp 
+CXXSOURCES = main.cpp JVMAgent.cpp NetworkServer.cpp
 JAVA_SOURCES=Test.java TestThread.java
 JAVA_TOOL_SOURCES=bridge.java
 JAVA_MANIFEST=manifest.mf
@@ -26,7 +26,7 @@ CXX="C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\bin\cl"
 # Compiler options needed to build it
 COMMON_FLAGS=-Gy -DWIN32
 # Options that help find errors
-COMMON_FLAGS+=-W0 -WX
+COMMON_FLAGS+=-W0 -WX /EHsc
 ifeq ($(OPT), true)
     COMMON_FLAGS += -Ox -Op -Zi
 else
